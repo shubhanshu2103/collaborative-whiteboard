@@ -73,6 +73,12 @@ const Dashboard: React.FC = () => {
                         <span className="text-sm font-medium text-slate-500 hidden sm:inline-block bg-slate-100 px-3 py-1.5 rounded-full">
                             Welcome, <span className="text-slate-800 font-semibold">{userName}</span>
                         </span>
+                        <button
+                            onClick={() => navigate('/friends')}
+                            className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors mr-2"
+                        >
+                            <Users size={16} /> Friends
+                        </button>
                         <div className="w-10 h-10 rounded-full bg-slate-100 p-0.5 border border-slate-200">
                             <UserButton
                                 afterSignOutUrl="/"

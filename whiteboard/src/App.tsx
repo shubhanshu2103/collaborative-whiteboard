@@ -3,6 +3,7 @@ import { SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import Dashboard from './components/Dashboard';
 import LandingPage from './components/LandingPage';
 import Whiteboard from './Whiteboard';
+import Friends from './components/Friends';
 
 function App() {
   return (
@@ -16,6 +17,17 @@ function App() {
             <SignedIn>
               <Dashboard />
             </SignedIn>
+          </>
+        } />
+
+        <Route path="/friends" element={
+          <>
+            <SignedIn>
+              <Friends />
+            </SignedIn>
+            <SignedOut>
+              <RedirectToSignIn />
+            </SignedOut>
           </>
         } />
 

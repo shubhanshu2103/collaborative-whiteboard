@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id // Clerk User ID
+  name      String?
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  boards              Board[]
+  sentFriendships     Friendship[] @relation("Requester")
+  receivedFriendships Friendship[] @relation("Receiver")
+  collaborations      BoardCollaborator[]
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model Friendship {
+  id          String           @id @default(uuid())
+  requesterId String
+  receiverId  String
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  requester   User             @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  receiver    User             @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, receiverId])
+  @@index([requesterId])
+  @@index([receiverId])
+}
+
+model Board {
+  id        String   @id @default(uuid())
+  ownerId   String
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner         User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  collaborators BoardCollaborator[]
+
+  @@index([ownerId])
+}
+
+enum CollaboratorRole {
+  EDITOR
+  VIEWER
+}
+
+model BoardCollaborator {
+  id        String           @id @default(uuid())
+  boardId   String
+  userId    String
+  role      CollaboratorRole @default(VIEWER)
+  createdAt DateTime         @default(now())
+
+  board     Board            @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, userId])
+  @@index([boardId])
+  @@index([userId])
+}

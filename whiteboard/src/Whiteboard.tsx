@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { fabric } from 'fabric';
 import { io, Socket } from 'socket.io-client';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MessageSquare, ArrowLeft, Download, Trash2, Undo2, Image as ImageIcon, FileText } from 'lucide-react';
+import { MessageSquare, ArrowLeft, Download, Trash2, Undo2, Image as ImageIcon, FileText, Share } from 'lucide-react';
 import jsPDF from 'jspdf';
 import Chat from './components/Chat';
+import ShareModal from './components/ShareModal';
 import { useUser, UserButton } from '@clerk/clerk-react';
 import { CRDTStore } from './store/CRDTStore';
 import { FlowchartManager } from './managers/FlowchartManager';
@@ -36,6 +37,8 @@ const Whiteboard = () => {
     const [brushSize, setBrushSize] = useState(5);
     const [socket, setSocket] = useState<Socket | null>(null);
     const [chatOpen, setChatOpen] = useState(false);
+    const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+    const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
     const [toolMode, setToolMode] = useState<ToolMode>('draw');
     const [activeShape, setActiveShape] = useState<ShapeType | null>(null);
@@ -65,7 +68,16 @@ const Whiteboard = () => {
         const newSocket = io(SOCKET_URL);
         setSocket(newSocket);
 
-        newSocket.emit('join-room', roomId);
+        if (user?.id) {
+            newSocket.emit('register-user', user.id);
+        }
+
+        newSocket.emit('join-room', { roomId, userId: user?.id });
+
+        newSocket.on('room-error', (msg: string) => {
+            alert(msg);
+            navigate('/');
+        });
 
         const canvas = new fabric.Canvas(canvasRef.current, {
             isDrawingMode: true,
@@ -328,29 +340,48 @@ const Whiteboard = () => {
         fabricCanvas.renderAll();
     };
 
-    const saveImage = () => {
+    const downloadPNG = () => {
+        if (!fabricCanvas) return;
         withWhiteBackground(() => {
-            const dataURL = fabricCanvas!.toDataURL({ format: 'png' });
+            const dataURL = fabricCanvas.toDataURL({ format: 'png', quality: 1 });
             const link = document.createElement('a');
             link.href = dataURL;
-            link.download = `whiteboard-session-${roomId}.png`;
+            link.download = `whiteboard-session-${roomId || 'export'}.png`;
             link.click();
         });
+        setIsExportMenuOpen(false);
     };
 
-    const savePDF = () => {
+    const downloadPDF = () => {
+        if (!fabricCanvas) return;
         withWhiteBackground(() => {
-            const imgData = fabricCanvas!.toDataURL({ format: 'png' });
-            const pdf = new jsPDF({
-                orientation: 'landscape',
-            });
+            const imgData = fabricCanvas.toDataURL({ format: 'png', quality: 1 });
+
+            // Determine orientation based on canvas dimensions for better fit
+            const orientation = fabricCanvas.width! > fabricCanvas.height! ? 'landscape' : 'portrait';
+            const pdf = new jsPDF({ orientation });
+
             const imgProps = pdf.getImageProperties(imgData);
             const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            const pageHeight = pdf.internal.pageSize.getHeight();
 
-            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            pdf.save(`whiteboard-session-${roomId}.pdf`);
+            let finalWidth = pdfWidth;
+            let finalHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+            // Scale down if it's too tall for the page
+            if (finalHeight > pageHeight) {
+                finalHeight = pageHeight;
+                finalWidth = (imgProps.width * pageHeight) / imgProps.height;
+            }
+
+            // Center the image on the PDF page
+            const x = (pdfWidth - finalWidth) / 2;
+            const y = (pageHeight - finalHeight) / 2;
+
+            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
+            pdf.save(`whiteboard-session-${roomId || 'export'}.pdf`);
         });
+        setIsExportMenuOpen(false);
     };
 
     const undo = () => {
@@ -467,20 +498,37 @@ const Whiteboard = () => {
 
                 <div className="w-px h-6 bg-slate-200 mx-2"></div>
 
+                {/* Share Button */}
+                <button
+                    onClick={() => setIsShareModalOpen(true)}
+                    className="px-3 py-2 bg-primary-50 text-primary-600 hover:bg-primary-100 hover:text-primary-700 rounded-xl font-bold flex items-center gap-2 transition-colors shadow-sm border border-primary-200"
+                    title="Share Board"
+                >
+                    <Share size={18} strokeWidth={2.5} /> Share
+                </button>
+
+                <div className="w-px h-6 bg-slate-200 mx-2"></div>
+
                 {/* Export Dropdown Group */}
-                <div className="relative group">
-                    <button className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors flex items-center gap-1" title="Export">
+                <div className="relative">
+                    <button
+                        onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+                        className={`p-2 rounded-xl transition-colors flex items-center gap-1 ${isExportMenuOpen ? 'bg-primary-50 text-primary-600' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'}`}
+                        title="Export"
+                    >
                         <Download size={20} strokeWidth={2.5} />
                     </button>
-                    {/* Hover Dropdown */}
-                    <div className="absolute right-0 top-full mt-2 w-48 bg-white/95 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/50 rounded-xl p-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-right scale-95 group-hover:scale-100 z-50">
-                        <button onClick={saveImage} className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg flex items-center gap-2.5 transition-colors">
-                            <ImageIcon size={18} className="text-slate-400" /> Save as PNG
-                        </button>
-                        <button onClick={savePDF} className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg flex items-center gap-2.5 transition-colors mt-0.5">
-                            <FileText size={18} className="text-slate-400" /> Save as PDF
-                        </button>
-                    </div>
+                    {/* Click Dropdown */}
+                    {isExportMenuOpen && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white/95 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/50 rounded-xl p-2 z-50">
+                            <button onClick={downloadPNG} className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg flex items-center gap-2.5 transition-colors">
+                                <ImageIcon size={18} className="text-slate-400" /> Download as PNG
+                            </button>
+                            <button onClick={downloadPDF} className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg flex items-center gap-2.5 transition-colors mt-0.5">
+                                <FileText size={18} className="text-slate-400" /> Download as PDF
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="w-px h-6 bg-slate-200 mx-2"></div>
@@ -549,6 +597,13 @@ const Whiteboard = () => {
             <div className="relative w-full h-full z-[1]">
                 <canvas ref={canvasRef} />
             </div>
+
+            {/* Share Modal */}
+            <ShareModal
+                roomId={roomId || ''}
+                isOpen={isShareModalOpen}
+                onClose={() => setIsShareModalOpen(false)}
+            />
 
             {/* Chat Component */}
             <Chat

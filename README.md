@@ -33,6 +33,13 @@
 * Vercel (Frontend Hosting)
 * Render (Backend WebSocket Server)
 
+## Documentation
+
+For a deeper dive into how this project is structured, check out the technical documentation:
+* [System Architecture Overview](./system-architecture.md)
+* [Real-Time Socket.io Flow](./real-time-flow.md)
+* [Database Schema & ER Diagram](./database-design.md)
+
 ## 💻 Running Locally
 
 Want to run Dentrite on your own machine? Follow these steps:

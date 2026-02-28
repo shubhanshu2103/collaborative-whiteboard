@@ -96,9 +96,9 @@ VITE_BACKEND_URL=http://localhost:4000
 ```
 ⁠
 
-⁠ Start the React development server:
+Start the React development server:
 
- ⁠bash
+```bash
 npm run dev
 
 ```

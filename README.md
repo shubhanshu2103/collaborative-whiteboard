@@ -60,32 +60,33 @@ We have mapped out the initial system design. Check out our technical documentat
 
 We are currently developing our initial Proof of Concept (PoC). To run the early prototype locally:
 
-**1. Clone the repository**
- ⁠bash
+### 1. Clone the repository
+```bash
 git clone [https://github.com/shubhanshu2103/collaborative-whiteboard.git](https://github.com/shubhanshu2103/collaborative-whiteboard.git)
 cd collaborative-whiteboard
 
+```
 
+### 2. Set up the Backend (WebSockets)
 
-⁠ **2. Set up the Backend (WebSockets)**
-
- ⁠bash
+```bash
 cd backend
 npm install
 npm start
 
+```
 
+*The WebSocket server will start running on `http://localhost:4000`.*
 
-⁠ *The local WebSocket server will run on http://localhost:4000.*
+### 3. Set up the Frontend (React)
 
-**3. Set up the Frontend (React)**
 Open a new terminal window and navigate to the frontend directory:
 
- ⁠bash
+```bash
 cd whiteboard
 npm install
 
-
+```
 
 Create a `.env` file in the `whiteboard` directory and add your Clerk Publishable Key:
 
@@ -94,7 +95,6 @@ VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_key_here
 VITE_BACKEND_URL=http://localhost:4000
 
 ```
-⁠
 
 Start the React development server:
 

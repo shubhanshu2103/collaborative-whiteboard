@@ -88,8 +88,8 @@ npm install
 
 
 ⁠ Create a `.env` file in the `whiteboard` directory and add your Clerk Publishable Key:
-
- ⁠env
+#⁠env
+ 
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_key_here
 VITE_BACKEND_URL=http://localhost:4000
 

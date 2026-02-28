@@ -6,6 +6,13 @@ import { MessageSquare, ArrowLeft, Download, Trash2, Undo2, Image as ImageIcon, 
 import jsPDF from 'jspdf';
 import Chat from './components/Chat';
 import { useUser, UserButton } from '@clerk/clerk-react';
+import { CRDTStore } from './store/CRDTStore';
+import { FlowchartManager } from './managers/FlowchartManager';
+import { HistoryManager } from './managers/HistoryManager';
+import { StickyNoteManager } from './managers/StickyNoteManager';
+import type { ToolMode } from './managers/FlowchartManager';
+import type { ShapeType } from './types/crdt';
+import FlowchartToolbar from './components/FlowchartToolbar';
 
 const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
 
@@ -29,6 +36,14 @@ const Whiteboard = () => {
     const [brushSize, setBrushSize] = useState(5);
     const [socket, setSocket] = useState<Socket | null>(null);
     const [chatOpen, setChatOpen] = useState(false);
+
+    const [toolMode, setToolMode] = useState<ToolMode>('draw');
+    const [activeShape, setActiveShape] = useState<ShapeType | null>(null);
+    const [selectedObjectInfo, setSelectedObjectInfo] = useState<{ id: string, text: string, x: number, y: number, w: number, h: number } | null>(null);
+    const crdtStoreRef = useRef<CRDTStore | null>(null);
+    const flowManagerRef = useRef<FlowchartManager | null>(null);
+    const stickyNoteManagerRef = useRef<StickyNoteManager | null>(null);
+    const historyManagerRef = useRef<HistoryManager | null>(null);
 
     // Clerk instantly provides the logged-in user's data!
     const { user } = useUser();
@@ -63,6 +78,40 @@ const Whiteboard = () => {
         canvas.freeDrawingBrush.width = brushSize;
 
         setFabricCanvas(canvas);
+
+        const store = new CRDTStore(newSocket.id || 'unknown-peer', (op) => {
+            newSocket.emit('crdt-operation', { roomId, operation: op });
+        });
+        crdtStoreRef.current = store;
+
+        const manager = new FlowchartManager(canvas, store);
+        flowManagerRef.current = manager;
+
+        const stickyManager = new StickyNoteManager(canvas, store);
+        stickyNoteManagerRef.current = stickyManager;
+
+        const historyManager = new HistoryManager(store);
+        historyManagerRef.current = historyManager;
+
+        store.setHistoryCallback((op) => {
+            historyManager.pushLocalOperation(op);
+        });
+
+        // Add object snapshot capture before mutation for UPDATE crrts
+        canvas.on('object:scaling', (e) => {
+            if (e.target && (e.target as any).id) {
+                historyManager.snapshotBeforeUpdate((e.target as any).id);
+            }
+        });
+        canvas.on('object:moving', (e) => {
+            if (e.target && (e.target as any).id) {
+                historyManager.snapshotBeforeUpdate((e.target as any).id);
+            }
+        });
+
+        newSocket.on('crdt-operation', (op: any) => {
+            store.applyRemoteOperation(op);
+        });
 
         newSocket.on('draw-line', (data: any) => {
             fabric.util.enlivenObjects([data], (objects: any[]) => {
@@ -131,6 +180,12 @@ const Whiteboard = () => {
         window.addEventListener('resize', handleResize);
 
         return () => {
+            if (flowManagerRef.current) {
+                flowManagerRef.current.dispose();
+            }
+            if (stickyNoteManagerRef.current) {
+                stickyNoteManagerRef.current.dispose();
+            }
             newSocket.disconnect();
             canvas.dispose();
             window.removeEventListener('resize', handleResize);
@@ -155,7 +210,7 @@ const Whiteboard = () => {
     useEffect(() => {
         if (!fabricCanvas || !socket || !roomId) return;
 
-        const handlePathCreated = (e: any) => {
+        const handlePathCreated = () => {
             if (historyStep < history.length - 1) {
                 history.length = historyStep + 1;
             }
@@ -163,8 +218,7 @@ const Whiteboard = () => {
             setHistory([...history, json]);
             setHistoryStep(prev => prev + 1);
 
-            const path = e.path;
-            socket.emit('draw-line', { roomId, data: path.toJSON() });
+            // Network sync is now handled by FlowchartManager via CRDTStore
         };
 
         const handleMouseMove = (opt: fabric.IEvent) => {
@@ -177,14 +231,81 @@ const Whiteboard = () => {
             });
         };
 
+        const handleSelection = () => {
+            const active = fabricCanvas.getActiveObject() as any;
+            if (active && active.isFlowchartShape && active.id) {
+                const shapeId = active.id;
+                const crdtObj = crdtStoreRef.current?.getObject(shapeId) as any;
+                const bounds = active.getBoundingRect();
+
+                setSelectedObjectInfo({
+                    id: shapeId,
+                    text: crdtObj?.text || '',
+                    x: bounds.left + bounds.width / 2,
+                    y: bounds.top + bounds.height / 2,
+                    w: bounds.width,
+                    h: bounds.height
+                });
+            } else {
+                setSelectedObjectInfo(null);
+            }
+        };
+
+        const handleObjectDrag = () => {
+            const active = fabricCanvas.getActiveObject() as any;
+            if (active && active.isFlowchartShape && active.id && selectedObjectInfo) {
+                const bounds = active.getBoundingRect();
+                setSelectedObjectInfo(prev => prev ? {
+                    ...prev,
+                    x: bounds.left + bounds.width / 2,
+                    y: bounds.top + bounds.height / 2,
+                    w: bounds.width,
+                    h: bounds.height
+                } : null);
+            }
+        };
+
+        fabricCanvas.on('selection:created', handleSelection);
+        fabricCanvas.on('selection:updated', handleSelection);
+        fabricCanvas.on('selection:cleared', handleSelection);
+        fabricCanvas.on('object:moving', handleObjectDrag);
+        fabricCanvas.on('object:scaling', handleObjectDrag);
         fabricCanvas.on('path:created', handlePathCreated);
         fabricCanvas.on('mouse:move', handleMouseMove);
 
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                if (historyManagerRef.current) {
+                    historyManagerRef.current.undo();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+
         return () => {
+            fabricCanvas.off('selection:created', handleSelection);
+            fabricCanvas.off('selection:updated', handleSelection);
+            fabricCanvas.off('selection:cleared', handleSelection);
+            fabricCanvas.off('object:moving', handleObjectDrag);
+            fabricCanvas.off('object:scaling', handleObjectDrag);
             fabricCanvas.off('path:created', handlePathCreated);
             fabricCanvas.off('mouse:move', handleMouseMove);
+            window.removeEventListener('keydown', handleKeyDown);
         };
     }, [fabricCanvas, socket, history, historyStep, roomId, username]);
+
+    const handleSetMode = (mode: ToolMode, shape?: ShapeType) => {
+        setToolMode(mode);
+        setActiveShape(shape || null);
+        if (flowManagerRef.current) {
+            flowManagerRef.current.setMode(mode, shape);
+        }
+        if (stickyNoteManagerRef.current) {
+            stickyNoteManagerRef.current.setMode(mode);
+        }
+    };
 
     // --- Toolbar Actions ---
 
@@ -233,13 +354,19 @@ const Whiteboard = () => {
     };
 
     const undo = () => {
-        if (fabricCanvas && historyStep > 0) {
+        // Freehand fallback
+        if (fabricCanvas && historyStep > 0 && toolMode === 'draw') {
             const prevStep = historyStep - 1;
             setHistoryStep(prevStep);
             fabricCanvas.loadFromJSON(history[prevStep], () => {
                 fabricCanvas.renderAll();
                 fabricCanvas.isDrawingMode = true;
             });
+        }
+
+        // CRDT native operation undo
+        if (historyManagerRef.current) {
+            historyManagerRef.current.undo();
         }
     };
 
@@ -257,6 +384,52 @@ const Whiteboard = () => {
                     backgroundSize: '24px 24px'
                 }}
             />
+
+            {/* Toolbar for Flowchart System */}
+            <FlowchartToolbar mode={toolMode} setMode={handleSetMode} activeShape={activeShape} />
+
+            {/* Shape Text Bar */}
+            {selectedObjectInfo && toolMode === 'select' && (
+                <div
+                    className="absolute z-10 flex flex-col justify-center items-center pointer-events-none"
+                    style={{
+                        left: selectedObjectInfo.x,
+                        top: selectedObjectInfo.y,
+                        transform: 'translate(-50%, -50%)',
+                        width: Math.max(120, selectedObjectInfo.w + 40),
+                    }}
+                >
+                    <input
+                        type="text"
+                        onKeyDown={(e) => {
+                            // Don't trigger native undo logic when typing inside input box!
+                            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                                e.stopPropagation();
+                            }
+                        }}
+                        className="bg-transparent border border-transparent text-slate-800 text-center text-base rounded-md px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-transparent focus:bg-white/95 focus:shadow-xl transition-all pointer-events-auto shadow-sm"
+                        placeholder="Type shape text..."
+                        value={selectedObjectInfo.text}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setSelectedObjectInfo({ ...selectedObjectInfo, text: val });
+                            crdtStoreRef.current?.update(selectedObjectInfo.id, { text: val });
+
+                            // Immediately map it structurally to fabric natively for buttery typing!
+                            if (fabricCanvas) {
+                                const active = fabricCanvas.getActiveObject();
+                                if (active && active.isType('group')) {
+                                    const textNode = (active as fabric.Group).item(1) as unknown as fabric.IText;
+                                    if (textNode) {
+                                        textNode.set({ text: val });
+                                        fabricCanvas.requestRenderAll();
+                                    }
+                                }
+                            }
+                        }}
+                    />
+                </div>
+            )}
 
             {/* Action Bar (Top Left) */}
             <div className="fixed top-6 left-6 z-10 flex items-center gap-4 bg-white/80 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-sm border border-slate-200/60 drop-shadow-sm transition-all hover:shadow-md">
@@ -278,9 +451,8 @@ const Whiteboard = () => {
             <div className="fixed top-6 right-6 z-10 flex items-center gap-1.5 bg-white/80 backdrop-blur-xl px-3 py-3 rounded-2xl shadow-sm border border-slate-200/60 drop-shadow-sm transition-all hover:shadow-md">
                 <button
                     onClick={undo}
-                    disabled={historyStep <= 0}
                     className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                    title="Undo"
+                    title="Undo (Ctrl+Z)"
                 >
                     <Undo2 size={20} strokeWidth={2.5} />
                 </button>

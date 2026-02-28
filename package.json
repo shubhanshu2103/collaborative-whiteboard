@@ -1,0 +1,14 @@
+{
+    "name": "collaborative-whiteboard",
+    "version": "1.0.0",
+    "description": "Sangam Collaborative Whiteboard Root Scripts",
+    "scripts": {
+        "install:all": "npm install --prefix backend && npm install --prefix whiteboard",
+        "dev:backend": "npm run dev --prefix backend",
+        "dev:frontend": "npm run dev --prefix whiteboard",
+        "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.0"
+    }
+}

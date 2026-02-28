@@ -50,9 +50,9 @@ We are currently architecting and building Sangam with the following core capabi
 
 ##  Architecture & Design (Drafts)
 We have mapped out the initial system design. Check out our technical documentation drafts:
-* [System Architecture Overview](./docs/system-architecture.md)
-* [Real-Time Socket.io Flow](./docs/real-time-flow.md)
-* [Database Schema & ER Diagram](./docs/database-design.md)
+* [System Architecture Overview](./system-architecture.md)
+* [Real-Time Socket.io Flow](./real-time-flow.md)
+* [Database Schema & ER Diagram](./database-design.md)
 
 ---
 
@@ -87,13 +87,14 @@ npm install
 
 
 
-⁠ Create a `.env` file in the `whiteboard` directory and add your Clerk Publishable Key:
-#⁠env
- 
+Create a `.env` file in the `whiteboard` directory and add your Clerk Publishable Key:
+
+```env
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_key_here
 VITE_BACKEND_URL=http://localhost:4000
 
-
+```
+⁠
 
 ⁠ Start the React development server:
 

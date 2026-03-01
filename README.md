@@ -104,6 +104,10 @@ npm run dev
 ```
 
 
-hosted urt- https://collaborative-whiteboard-amber.vercel.app/
+hosted url- https://collaborative-whiteboard-amber.vercel.app/
+
+
 ppt link- https://drive.google.com/file/d/1cDMm953ztCnapeZByVsSb_7YIYtG2lJe/view?usp=sharing
+
+
 demo link- https://drive.google.com/file/d/1PC90NJ7gC-YQQdo2udOO9uDWFapsa4ud/view?usp=sharing

@@ -9,7 +9,6 @@ import ShareModal from './components/ShareModal';
 import { useUser, UserButton } from '@clerk/clerk-react';
 import { CRDTStore } from './store/CRDTStore';
 import { FlowchartManager } from './managers/FlowchartManager';
-import { HistoryManager } from './managers/HistoryManager';
 import { StickyNoteManager } from './managers/StickyNoteManager';
 import type { ToolMode } from './managers/FlowchartManager';
 import type { ShapeType } from './types/crdt';
@@ -46,15 +45,15 @@ const Whiteboard = () => {
     const crdtStoreRef = useRef<CRDTStore | null>(null);
     const flowManagerRef = useRef<FlowchartManager | null>(null);
     const stickyNoteManagerRef = useRef<StickyNoteManager | null>(null);
-    const historyManagerRef = useRef<HistoryManager | null>(null);
 
     // Clerk instantly provides the logged-in user's data!
     const { user } = useUser();
     const username = user?.firstName || 'User';
 
     // History for Undo/Redo
-    const [history, setHistory] = useState<string[]>([]);
-    const [historyStep, setHistoryStep] = useState(-1);
+    const [undoStack, setUndoStack] = useState<string[]>([]);
+    const [redoStack, setRedoStack] = useState<string[]>([]);
+    const isHistoryAction = useRef(false);
 
     // Remote Cursors
     const cursorsRef = useRef<Map<string, fabric.Group>>(new Map());
@@ -102,24 +101,7 @@ const Whiteboard = () => {
         const stickyManager = new StickyNoteManager(canvas, store);
         stickyNoteManagerRef.current = stickyManager;
 
-        const historyManager = new HistoryManager(store);
-        historyManagerRef.current = historyManager;
 
-        store.setHistoryCallback((op) => {
-            historyManager.pushLocalOperation(op);
-        });
-
-        // Add object snapshot capture before mutation for UPDATE crrts
-        canvas.on('object:scaling', (e) => {
-            if (e.target && (e.target as any).id) {
-                historyManager.snapshotBeforeUpdate((e.target as any).id);
-            }
-        });
-        canvas.on('object:moving', (e) => {
-            if (e.target && (e.target as any).id) {
-                historyManager.snapshotBeforeUpdate((e.target as any).id);
-            }
-        });
 
         newSocket.on('crdt-operation', (op: any) => {
             store.applyRemoteOperation(op);
@@ -223,26 +205,36 @@ const Whiteboard = () => {
 
     useEffect(() => {
         if (!fabricCanvas) return;
-        if (history.length === 0) {
-            const emptyState = JSON.stringify(fabricCanvas.toJSON());
-            setHistory([emptyState]);
-            setHistoryStep(0);
+        if (undoStack.length === 0) {
+            const emptyState = JSON.stringify(fabricCanvas.toJSON(['id', 'isFlowchartShape', 'isStickyNote', 'objectType', 'isLaser']));
+            setUndoStack([emptyState]);
         }
     }, [fabricCanvas]);
 
     useEffect(() => {
         if (!fabricCanvas || !socket || !roomId) return;
 
-        const handlePathCreated = () => {
-            if (historyStep < history.length - 1) {
-                history.length = historyStep + 1;
-            }
-            const json = JSON.stringify(fabricCanvas);
-            setHistory([...history, json]);
-            setHistoryStep(prev => prev + 1);
+        socket.on('sync-canvas', (state: string) => {
+            if (isHistoryAction.current) return;
+            isHistoryAction.current = true;
+            fabricCanvas.loadFromJSON(state, () => {
+                fabricCanvas.renderAll();
+                isHistoryAction.current = false;
+            });
+        });
 
-            // Network sync is now handled by FlowchartManager via CRDTStore
+        const saveHistory = (e?: any) => {
+            if (!fabricCanvas || isHistoryAction.current || (e && e.target && e.target.isRemoteRendering)) return;
+            const currentJson = JSON.stringify(fabricCanvas.toJSON(['id', 'isFlowchartShape', 'isStickyNote', 'objectType', 'isLaser']));
+
+            setUndoStack(prev => {
+                if (prev.length > 0 && prev[prev.length - 1] === currentJson) return prev;
+                return [...prev, currentJson];
+            });
+            setRedoStack([]);
         };
+
+        const handleCanvasChange = (e: any) => saveHistory(e);
 
         const handleMouseMove = (opt: fabric.IEvent) => {
             if (!opt.pointer) return;
@@ -293,14 +285,17 @@ const Whiteboard = () => {
         fabricCanvas.on('selection:cleared', handleSelection);
         fabricCanvas.on('object:moving', handleObjectDrag);
         fabricCanvas.on('object:scaling', handleObjectDrag);
-        fabricCanvas.on('path:created', handlePathCreated);
         fabricCanvas.on('mouse:move', handleMouseMove);
+
+        fabricCanvas.on('object:added', handleCanvasChange);
+        fabricCanvas.on('object:modified', handleCanvasChange);
+        fabricCanvas.on('object:removed', handleCanvasChange);
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
                 e.preventDefault();
-                if (historyManagerRef.current) {
-                    historyManagerRef.current.undo();
+                if (!isHistoryAction.current) {
+                    undo();
                 }
             }
         };
@@ -313,11 +308,14 @@ const Whiteboard = () => {
             fabricCanvas.off('selection:cleared', handleSelection);
             fabricCanvas.off('object:moving', handleObjectDrag);
             fabricCanvas.off('object:scaling', handleObjectDrag);
-            fabricCanvas.off('path:created', handlePathCreated);
             fabricCanvas.off('mouse:move', handleMouseMove);
+
+            fabricCanvas.off('object:added', handleCanvasChange);
+            fabricCanvas.off('object:modified', handleCanvasChange);
+            fabricCanvas.off('object:removed', handleCanvasChange);
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, [fabricCanvas, socket, history, historyStep, roomId, username]);
+    }, [fabricCanvas, socket, roomId, username]);
 
     const handleSetMode = (mode: ToolMode, shape?: ShapeType) => {
         setToolMode(mode);
@@ -396,20 +394,26 @@ const Whiteboard = () => {
     };
 
     const undo = () => {
-        // Freehand fallback
-        if (fabricCanvas && historyStep > 0 && toolMode === 'draw') {
-            const prevStep = historyStep - 1;
-            setHistoryStep(prevStep);
-            fabricCanvas.loadFromJSON(history[prevStep], () => {
-                fabricCanvas.renderAll();
-                fabricCanvas.isDrawingMode = true;
-            });
-        }
+        if (!fabricCanvas || undoStack.length <= 1) return;
 
-        // CRDT native operation undo
-        if (historyManagerRef.current) {
-            historyManagerRef.current.undo();
-        }
+        isHistoryAction.current = true;
+
+        const currentState = undoStack[undoStack.length - 1];
+        setRedoStack(prev => [...prev, currentState]);
+
+        const newUndo = [...undoStack];
+        newUndo.pop();
+        setUndoStack(newUndo);
+
+        const previousState = newUndo[newUndo.length - 1];
+
+        fabricCanvas.loadFromJSON(previousState, () => {
+            fabricCanvas.renderAll();
+            socket?.emit('sync-canvas', { roomId, state: previousState });
+            isHistoryAction.current = false;
+
+            if (toolMode === 'draw') fabricCanvas.isDrawingMode = true;
+        });
     };
 
     const leaveSession = () => {

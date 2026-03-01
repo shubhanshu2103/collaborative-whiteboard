@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CRDTStore } from '../store/CRDTStore';
 import type { CanvasObject, ConnectorObject, ShapeObject, ShapeType, PathObject } from '../types/crdt';
 
-export type ToolMode = 'select' | 'pan' | 'draw' | 'shape' | 'connect' | 'sticky-note' | 'laser';
+export type ToolMode = 'select' | 'pan' | 'draw' | 'shape' | 'connect' | 'sticky-note' | 'laser' | 'eraser';
 
 export class FlowchartManager {
     public canvas: fabric.Canvas;
@@ -11,6 +11,7 @@ export class FlowchartManager {
     private mode: ToolMode = 'draw';
     private currentShapeSelection: ShapeType | null = null;
     private connectingFromId: string | null = null;
+    private isErasing: boolean = false;
 
     private fabricObjectMap: Map<string, fabric.Object> = new Map();
     private unsubscribeCRDT: () => void;
@@ -48,15 +49,23 @@ export class FlowchartManager {
         if (mode === 'draw' || mode === 'laser') {
             this.canvas.isDrawingMode = true;
             this.canvas.selection = false;
+            this.canvas.defaultCursor = 'default';
             this.fabricObjectMap.forEach((obj) => obj.set('selectable', false));
         } else if (mode === 'select') {
             this.canvas.isDrawingMode = false;
             this.canvas.selection = true;
+            this.canvas.defaultCursor = 'default';
             this.fabricObjectMap.forEach((obj) => obj.set('selectable', true));
+        } else if (mode === 'eraser') {
+            this.canvas.isDrawingMode = false;
+            this.canvas.selection = false;
+            this.canvas.defaultCursor = 'crosshair';
+            this.fabricObjectMap.forEach((obj) => obj.set('selectable', false));
         } else {
             // Shape or Connect mode
             this.canvas.isDrawingMode = false;
             this.canvas.selection = false;
+            this.canvas.defaultCursor = 'default';
             this.fabricObjectMap.forEach((obj) => obj.set('selectable', true));
         }
         this.canvas.renderAll();
@@ -70,6 +79,8 @@ export class FlowchartManager {
         this.canvas.on('object:modified', this.handleObjectModified);
         this.canvas.on('mouse:down', this.handleMouseDown);
         this.canvas.on('mouse:move', this.handleMouseMove);
+        this.canvas.on('mouse:up', this.handleMouseUp);
+        this.canvas.on('mouse:out', this.handleMouseOut);
         this.canvas.on('path:created', this.handlePathCreated);
         this.canvas.on('object:moving', this.handleObjectMoving);
     }
@@ -78,6 +89,8 @@ export class FlowchartManager {
         this.canvas.off('object:modified', this.handleObjectModified);
         this.canvas.off('mouse:down', this.handleMouseDown);
         this.canvas.off('mouse:move', this.handleMouseMove);
+        this.canvas.off('mouse:up', this.handleMouseUp);
+        this.canvas.off('mouse:out', this.handleMouseOut);
         this.canvas.off('path:created', this.handlePathCreated);
         this.canvas.off('object:moving', this.handleObjectMoving);
     }
@@ -204,7 +217,21 @@ export class FlowchartManager {
     };
 
     private handleMouseDown = (e: fabric.IEvent) => {
-        if (this.mode === 'shape' && this.currentShapeSelection) {
+        if (this.mode === 'eraser') {
+            this.isErasing = true;
+            let target = e.target;
+            if (!target && e.e) {
+                target = this.canvas.findTarget(e.e, false);
+            }
+            if (target && (target as any).id) {
+                const id = (target as any).id;
+                this.crdtStore.delete(id);
+                (target as any).isRemoteRendering = true;
+                this.canvas.remove(target);
+                (target as any).isRemoteRendering = false;
+                this.fabricObjectMap.delete(id);
+            }
+        } else if (this.mode === 'shape' && this.currentShapeSelection) {
             const pointer = this.canvas.getPointer(e.e);
             this.addShape(this.currentShapeSelection, pointer.x, pointer.y);
             // Revert back to select mode automatically or keep it? Let's revert to select.
@@ -247,10 +274,32 @@ export class FlowchartManager {
     };
 
     private handleMouseMove = (e: fabric.IEvent) => {
-        if (this.mode === 'connect' && this.connectingFromId && this.currentLine) {
+        if (this.mode === 'eraser' && this.isErasing && e.e) {
+            const target = this.canvas.findTarget(e.e, false);
+            if (target && (target as any).id) {
+                const id = (target as any).id;
+                this.crdtStore.delete(id);
+                (target as any).isRemoteRendering = true;
+                this.canvas.remove(target);
+                (target as any).isRemoteRendering = false;
+                this.fabricObjectMap.delete(id);
+            }
+        } else if (this.mode === 'connect' && this.connectingFromId && this.currentLine) {
             const pointer = this.canvas.getPointer(e.e);
             this.currentLine.set({ x2: pointer.x, y2: pointer.y });
             this.canvas.requestRenderAll();
+        }
+    };
+
+    private handleMouseUp = (_e: fabric.IEvent) => {
+        if (this.mode === 'eraser') {
+            this.isErasing = false;
+        }
+    };
+
+    private handleMouseOut = (_e: fabric.IEvent) => {
+        if (this.mode === 'eraser') {
+            this.isErasing = false;
         }
     };
 
@@ -396,7 +445,9 @@ export class FlowchartManager {
         if (op.type === 'DELETE') {
             const fabricObj = this.fabricObjectMap.get(op.id);
             if (fabricObj) {
+                (fabricObj as any).isRemoteRendering = true;
                 this.canvas.remove(fabricObj);
+                (fabricObj as any).isRemoteRendering = false;
                 this.fabricObjectMap.delete(op.id);
             }
         } else if (op.type === 'ADD' || op.type === 'UPDATE') {
@@ -410,7 +461,9 @@ export class FlowchartManager {
             if (obj && obj.id) {
                 const existing = this.fabricObjectMap.get(obj.id);
                 if (existing) {
+                    (existing as any).isRemoteRendering = true;
                     this.canvas.remove(existing);
+                    (existing as any).isRemoteRendering = false;
                     this.fabricObjectMap.delete(obj.id);
                 }
             }
@@ -436,7 +489,9 @@ export class FlowchartManager {
                         pathObj.stroke = '#ff0000';
                     }
 
+                    (pathObj as any).isRemoteRendering = true;
                     this.canvas.add(pathObj);
+                    (pathObj as any).isRemoteRendering = false;
                     this.fabricObjectMap.set(obj.id, pathObj);
                     this.canvas.sendToBack(pathObj);
                     this.canvas.requestRenderAll();
@@ -459,9 +514,13 @@ export class FlowchartManager {
 
                 if (structuralChange) {
                     const wasSelected = this.canvas.getActiveObject() === existing;
+                    (existing as any).isRemoteRendering = true;
                     this.canvas.remove(existing);
+                    (existing as any).isRemoteRendering = false;
                     const shape = this.createFabricShapeFromCRDT(obj);
+                    (shape as any).isRemoteRendering = true;
                     this.canvas.add(shape);
+                    (shape as any).isRemoteRendering = false;
                     this.fabricObjectMap.set(obj.id, shape);
                     if (wasSelected) {
                         this.canvas.setActiveObject(shape);
@@ -477,7 +536,9 @@ export class FlowchartManager {
                 }
             } else {
                 const shape = this.createFabricShapeFromCRDT(obj);
+                (shape as any).isRemoteRendering = true;
                 this.canvas.add(shape);
+                (shape as any).isRemoteRendering = false;
                 this.fabricObjectMap.set(obj.id, shape);
             }
         } else if (obj.objectType === 'connector') {
@@ -502,7 +563,9 @@ export class FlowchartManager {
                     evented: false
                 });
                 (line as any).id = obj.id;
+                (line as any).isRemoteRendering = true;
                 this.canvas.add(line);
+                (line as any).isRemoteRendering = false;
                 this.fabricObjectMap.set(obj.id, line);
                 this.canvas.sendToBack(line);
             }

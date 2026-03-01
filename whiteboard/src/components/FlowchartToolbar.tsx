@@ -1,4 +1,4 @@
-import { Square, Type, Diamond, Circle, Hexagon, MousePointer2, ArrowRight, PenLine, StickyNote, Wand2 } from 'lucide-react';
+import { Square, Type, Diamond, Circle, Hexagon, MousePointer2, ArrowRight, PenLine, StickyNote, Wand2, Eraser } from 'lucide-react';
 import type { ToolMode } from '../managers/FlowchartManager';
 import type { ShapeType } from '../types/crdt';
 
@@ -34,6 +34,14 @@ const FlowchartToolbar = ({ mode, setMode, activeShape }: Props) => {
                 title="Laser Pointer"
             >
                 <Wand2 size={20} />
+            </button>
+
+            <button
+                onClick={() => setMode('eraser')}
+                className={`p-2.5 rounded-xl transition-colors ${mode === 'eraser' ? 'bg-pink-100 text-pink-600 shadow-sm' : 'text-slate-500 hover:text-pink-500 hover:bg-slate-100'}`}
+                title="Eraser"
+            >
+                <Eraser size={20} />
             </button>
 
             <div className="w-6 h-px bg-slate-200 my-1"></div>

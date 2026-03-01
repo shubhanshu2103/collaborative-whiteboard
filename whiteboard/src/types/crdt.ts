@@ -36,6 +36,7 @@ export type PathObject = BaseObject & {
     pathData: any;
     stroke: string;
     strokeWidth: number;
+    isLaser?: boolean;
 };
 
 export type StickyNoteObject = BaseObject & {

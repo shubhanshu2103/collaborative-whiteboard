@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fabric } from 'fabric';
 import { io, Socket } from 'socket.io-client';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -206,9 +206,20 @@ const Whiteboard = () => {
 
     useEffect(() => {
         if (!fabricCanvas) return;
-        fabricCanvas.freeDrawingBrush.color = color;
-        fabricCanvas.freeDrawingBrush.width = brushSize;
-    }, [color, brushSize, fabricCanvas]);
+        if (toolMode === 'laser') {
+            fabricCanvas.freeDrawingBrush.color = '#ff0000';
+            fabricCanvas.freeDrawingBrush.width = 6;
+            fabricCanvas.freeDrawingBrush.shadow = new fabric.Shadow({
+                blur: 15,
+                color: '#ff0000',
+            });
+        } else {
+            fabricCanvas.freeDrawingBrush.color = color;
+            fabricCanvas.freeDrawingBrush.width = brushSize;
+            // @ts-ignore
+            fabricCanvas.freeDrawingBrush.shadow = null;
+        }
+    }, [color, brushSize, fabricCanvas, toolMode]);
 
     useEffect(() => {
         if (!fabricCanvas) return;
@@ -265,7 +276,7 @@ const Whiteboard = () => {
 
         const handleObjectDrag = () => {
             const active = fabricCanvas.getActiveObject() as any;
-            if (active && active.isFlowchartShape && active.id && selectedObjectInfo) {
+            if (active && active.id && selectedObjectInfo) {
                 const bounds = active.getBoundingRect();
                 setSelectedObjectInfo(prev => prev ? {
                     ...prev,
@@ -405,6 +416,8 @@ const Whiteboard = () => {
         navigate('/');
     };
 
+
+
     return (
         <div className="relative w-full h-screen overflow-hidden bg-slate-50 font-sans text-slate-900">
             {/* Subtle Dot Grid Background */}
@@ -461,6 +474,8 @@ const Whiteboard = () => {
                     />
                 </div>
             )}
+
+
 
             {/* Action Bar (Top Left) */}
             <div className="fixed top-6 left-6 z-10 flex items-center gap-4 bg-white/80 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-sm border border-slate-200/60 drop-shadow-sm transition-all hover:shadow-md">

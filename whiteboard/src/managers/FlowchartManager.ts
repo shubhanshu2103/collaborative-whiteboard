@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CRDTStore } from '../store/CRDTStore';
 import type { CanvasObject, ConnectorObject, ShapeObject, ShapeType, PathObject } from '../types/crdt';
 
-export type ToolMode = 'select' | 'pan' | 'draw' | 'shape' | 'connect' | 'sticky-note';
+export type ToolMode = 'select' | 'pan' | 'draw' | 'shape' | 'connect' | 'sticky-note' | 'laser';
 
 export class FlowchartManager {
     public canvas: fabric.Canvas;
@@ -45,7 +45,7 @@ export class FlowchartManager {
             this.currentLine = null;
         }
 
-        if (mode === 'draw') {
+        if (mode === 'draw' || mode === 'laser') {
             this.canvas.isDrawingMode = true;
             this.canvas.selection = false;
             this.fabricObjectMap.forEach((obj) => obj.set('selectable', false));
@@ -151,12 +151,37 @@ export class FlowchartManager {
         }
     };
 
+    private triggerLaserFade(pathObj: fabric.Object, id: string, isLocal: boolean) {
+        const steps = 30;
+        const intervalTime = 1500 / steps;
+        let currentStep = 0;
+
+        const interval = setInterval(() => {
+            currentStep++;
+            const newOpacity = 1 - (currentStep / steps);
+            pathObj.set({ opacity: Math.max(0, newOpacity) });
+            this.canvas.requestRenderAll();
+
+            if (currentStep >= steps) {
+                clearInterval(interval);
+                this.canvas.remove(pathObj);
+                this.fabricObjectMap.delete(id);
+
+                if (isLocal) {
+                    this.crdtStore.delete(id);
+                }
+            }
+        }, intervalTime);
+    }
+
     private handlePathCreated = (e: any) => {
         const path = e.path;
         path.id = uuidv4();
 
         // Disable selectable if we want
         path.selectable = (this.mode === 'select');
+
+        const isLaser = this.mode === 'laser';
 
         // Add to CRDT
         this.crdtStore.add({
@@ -167,10 +192,15 @@ export class FlowchartManager {
             zIndex: 0,
             pathData: path.toJSON(),
             stroke: path.stroke,
-            strokeWidth: path.strokeWidth
+            strokeWidth: path.strokeWidth,
+            isLaser
         } as PathObject);
 
         this.fabricObjectMap.set(path.id, path);
+
+        if (isLaser) {
+            this.triggerLaserFade(path, path.id, true);
+        }
     };
 
     private handleMouseDown = (e: fabric.IEvent) => {
@@ -395,10 +425,25 @@ export class FlowchartManager {
                     const pathObj = objects[0];
                     pathObj.id = obj.id;
                     pathObj.selectable = this.mode === 'select';
+
+                    if (obj.isLaser) {
+                        pathObj.shadow = new fabric.Shadow({
+                            color: '#ff0000',
+                            blur: 10,
+                            offsetX: 0,
+                            offsetY: 0
+                        });
+                        pathObj.stroke = '#ff0000';
+                    }
+
                     this.canvas.add(pathObj);
                     this.fabricObjectMap.set(obj.id, pathObj);
                     this.canvas.sendToBack(pathObj);
                     this.canvas.requestRenderAll();
+
+                    if (obj.isLaser) {
+                        this.triggerLaserFade(pathObj, obj.id, false);
+                    }
                 }, 'fabric');
             }
         } else if (obj.objectType === 'shape') {

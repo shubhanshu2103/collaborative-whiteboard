@@ -2,6 +2,7 @@ import { fabric } from 'fabric';
 import { v4 as uuidv4 } from 'uuid';
 import { CRDTStore } from '../store/CRDTStore';
 import type { CanvasObject, ConnectorObject, ShapeObject, ShapeType, PathObject } from '../types/crdt';
+import { ShapeRecognizer } from '../utils/ShapeRecognizer';
 
 export type ToolMode = 'select' | 'pan' | 'draw' | 'shape' | 'connect' | 'sticky-note' | 'laser' | 'eraser';
 
@@ -191,10 +192,36 @@ export class FlowchartManager {
         const path = e.path;
         path.id = uuidv4();
 
+        // 1. Analyze path for Shape Correction (only for regular drawing pens)
+        const isLaser = this.mode === 'laser';
+        if (!isLaser) {
+            const recognizedShapeString = ShapeRecognizer.recognizeShape(path);
+
+            if (recognizedShapeString !== 'none') {
+                // Remove the scribbled path locally immediately
+                this.canvas.remove(path);
+
+                const bounds = path.getBoundingRect();
+                const center = path.getCenterPoint();
+
+                // Add perfect shape to CRDT
+                this.addShape(
+                    recognizedShapeString as ShapeType,
+                    center.x,
+                    center.y,
+                    bounds.width,
+                    bounds.height,
+                    path.stroke || '#000000'
+                );
+
+                // Keep select mode active or switch to select mode
+                this.setMode('select');
+                return; // Stop standard path broadcast
+            }
+        }
+
         // Disable selectable if we want
         path.selectable = (this.mode === 'select');
-
-        const isLaser = this.mode === 'laser';
 
         // Add to CRDT
         this.crdtStore.add({
@@ -402,16 +429,16 @@ export class FlowchartManager {
         return retObj;
     }
 
-    private addShape(type: ShapeType, x: number, y: number) {
+    private addShape(type: ShapeType, x: number, y: number, width: number = 100, height: number = 60, strokeColor: string = '#000000') {
         const id = uuidv4();
         const obj: ShapeObject = {
             id,
             objectType: 'shape',
             shapeType: type,
             position: { x, y },
-            dimension: { width: 100, height: 60 },
+            dimension: { width, height },
             fill: '#ffffff',
-            stroke: '#000000',
+            stroke: strokeColor,
             text: '', // Start empty
             timestamp: 0,
             peerId: '',

@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 model User {
@@ -45,7 +45,7 @@ model Board {
   id          String   @id @default(uuid())
   ownerId     String
   title       String   @default("Untitled Board")
-  canvasState String?  @db.Text
+  canvasState String?
   isPublic    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt DateTime @updatedAt

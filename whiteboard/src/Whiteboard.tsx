@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { fabric } from 'fabric';
 import { io, Socket } from 'socket.io-client';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MessageSquare, ArrowLeft, Download, Trash2, Undo2, Image as ImageIcon, FileText, Share } from 'lucide-react';
+import { MessageSquare, ArrowLeft, Download, Trash2, Undo2, Image as ImageIcon, FileText, Share, Save } from 'lucide-react';
 import jsPDF from 'jspdf';
 import Chat from './components/Chat';
 import ShareModal from './components/ShareModal';
-import { useUser, UserButton } from '@clerk/clerk-react';
+import SaveBoardModal from './components/SaveBoardModal';
+import { useUser, UserButton, useAuth } from '@clerk/clerk-react';
 import { CRDTStore } from './store/CRDTStore';
 import { FlowchartManager } from './managers/FlowchartManager';
 import { StickyNoteManager } from './managers/StickyNoteManager';
@@ -38,6 +39,7 @@ const Whiteboard = () => {
     const [chatOpen, setChatOpen] = useState(false);
     const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
     const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+    const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
 
     const [toolMode, setToolMode] = useState<ToolMode>('draw');
     const [activeShape, setActiveShape] = useState<ShapeType | null>(null);
@@ -48,6 +50,7 @@ const Whiteboard = () => {
 
     // Clerk instantly provides the logged-in user's data!
     const { user } = useUser();
+    const { getToken } = useAuth();
     const username = user?.firstName || 'User';
 
     // History for Undo/Redo
@@ -420,7 +423,37 @@ const Whiteboard = () => {
         navigate('/');
     };
 
+    const handleSaveBoard = async (name: string, isPublic: boolean) => {
+        if (!fabricCanvas || !roomId) return;
+        try {
+            const token = await getToken();
+            const canvasState = JSON.stringify(fabricCanvas.toJSON(['id', 'isFlowchartShape', 'isStickyNote', 'objectType', 'isLaser']));
 
+            const res = await fetch(`${SOCKET_URL}/api/boards/save`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    boardId: roomId,
+                    canvasState,
+                    name,
+                    isPublic
+                })
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to save board');
+            }
+
+            alert('Board saved successfully!');
+        } catch (err: any) {
+            alert(err.message || 'Error saving board');
+            throw err;
+        }
+    };
 
     return (
         <div className="relative w-full h-screen overflow-hidden bg-slate-50 font-sans text-slate-900">
@@ -513,6 +546,17 @@ const Whiteboard = () => {
                     title="Clear Board"
                 >
                     <Trash2 size={20} strokeWidth={2.5} />
+                </button>
+
+                <div className="w-px h-6 bg-slate-200 mx-2"></div>
+
+                {/* Save Button */}
+                <button
+                    onClick={() => setIsSaveModalOpen(true)}
+                    className="p-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 rounded-xl transition-colors"
+                    title="Save Board to Cloud"
+                >
+                    <Save size={20} strokeWidth={2.5} />
                 </button>
 
                 <div className="w-px h-6 bg-slate-200 mx-2"></div>
@@ -622,6 +666,13 @@ const Whiteboard = () => {
                 roomId={roomId || ''}
                 isOpen={isShareModalOpen}
                 onClose={() => setIsShareModalOpen(false)}
+            />
+
+            {/* Save Board Modal */}
+            <SaveBoardModal
+                isOpen={isSaveModalOpen}
+                onClose={() => setIsSaveModalOpen(false)}
+                onSave={handleSaveBoard}
             />
 
             {/* Chat Component */}

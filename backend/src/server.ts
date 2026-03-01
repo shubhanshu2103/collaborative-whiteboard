@@ -132,6 +132,11 @@ io.on('connection', (socket: Socket) => {
         io.in(roomId).emit('clear');
     });
 
+    socket.on('sync-canvas', ({ roomId, state }: { roomId: string, state: string }) => {
+        if (!roomId || !state) return;
+        socket.to(roomId).emit('sync-canvas', state);
+    });
+
     socket.on('send-message', ({ roomId, message }: { roomId: string, message: any }) => {
         if (!roomId || !message) return;
         socket.to(roomId).emit('receive-message', message);

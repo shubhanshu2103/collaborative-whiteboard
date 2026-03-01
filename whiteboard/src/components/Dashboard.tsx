@@ -1,17 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuid } from 'uuid';
-import { useUser, UserButton } from '@clerk/clerk-react';
+import { useUser, UserButton, useAuth } from '@clerk/clerk-react';
 import { motion, type Variants } from 'framer-motion';
-import { Plus, Users, ArrowRight, Sparkles } from 'lucide-react';
+import { Plus, Users, ArrowRight, Sparkles, LayoutGrid, Globe, Lock, Play, Loader2, FolderClosed } from 'lucide-react';
+
+const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
 
 const Dashboard: React.FC = () => {
     const navigate = useNavigate();
-    const [joinSessionId, setJoinSessionId] = useState('');
-
-    // Clerk instantly provides the logged-in user's data
+    const { getToken } = useAuth();
     const { user } = useUser();
     const userName = user?.firstName || 'User';
+
+    const [joinSessionId, setJoinSessionId] = useState('');
+    const [activeTab, setActiveTab] = useState<'boards' | 'network'>('boards');
+
+    // States for Boards
+    const [myBoards, setMyBoards] = useState<any[]>([]);
+    const [loadingBoards, setLoadingBoards] = useState(false);
+
+    // States for Network
+    const [friends, setFriends] = useState<any[]>([]);
+    const [loadingFriends, setLoadingFriends] = useState(false);
+    const [selectedFriend, setSelectedFriend] = useState<any | null>(null);
+    const [friendBoards, setFriendBoards] = useState<any[]>([]);
+    const [loadingFriendBoards, setLoadingFriendBoards] = useState(false);
 
     const createSession = () => {
         const sessionId = uuid();
@@ -20,52 +34,104 @@ const Dashboard: React.FC = () => {
 
     const joinSession = (e: React.FormEvent) => {
         e.preventDefault();
-        if (joinSessionId.trim()) {
-            navigate(`/session/${joinSessionId.trim()}`);
+        if (joinSessionId.trim()) navigate(`/session/${joinSessionId.trim()}`);
+    };
+
+    useEffect(() => {
+        if (activeTab === 'boards') {
+            fetchMyBoards();
+        } else {
+            fetchFriends();
+        }
+    }, [activeTab]);
+
+    const fetchMyBoards = async () => {
+        setLoadingBoards(true);
+        try {
+            const token = await getToken();
+            const res = await fetch(`${API_URL}/api/boards/me`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.ok) setMyBoards(await res.json());
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoadingBoards(false);
         }
     };
 
-    // Animation variants
-    const containerVariants: Variants = {
-        hidden: { opacity: 0 },
-        visible: {
-            opacity: 1,
-            transition: { staggerChildren: 0.1 }
+    const fetchFriends = async () => {
+        setLoadingFriends(true);
+        try {
+            const token = await getToken();
+            const res = await fetch(`${API_URL}/api/friends/list`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.ok) setFriends(await res.json());
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoadingFriends(false);
         }
     };
 
-    const itemVariants: Variants = {
-        hidden: { opacity: 0, y: 20 },
-        visible: {
-            opacity: 1,
-            y: 0,
-            transition: { duration: 0.5, ease: "easeOut" }
+    const fetchFriendBoards = async (friendId: string) => {
+        setLoadingFriendBoards(true);
+        try {
+            const token = await getToken();
+            const res = await fetch(`${API_URL}/api/boards/friend/${friendId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.ok) setFriendBoards(await res.json());
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoadingFriendBoards(false);
         }
     };
+
+    const BoardCard = ({ board }: { board: any }) => (
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group h-48">
+            <div>
+                <div className="flex justify-between items-start mb-3">
+                    <div className="p-2.5 bg-primary-50 text-primary-600 rounded-xl group-hover:scale-105 transition-transform">
+                        <FolderClosed size={20} strokeWidth={2.5} />
+                    </div>
+                    {board.isPublic ? (
+                        <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                            <Globe size={12} /> Public
+                        </span>
+                    ) : (
+                        <span className="bg-slate-100 text-slate-500 border border-slate-200 text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                            <Lock size={12} /> Private
+                        </span>
+                    )}
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 tracking-tight leading-tight line-clamp-1">{board.title}</h3>
+                <p className="text-xs text-slate-400 mt-1.5 font-medium">Updated {new Date(board.updatedAt).toLocaleDateString()}</p>
+            </div>
+
+            <button
+                onClick={() => navigate(`/session/${board.id}`)}
+                className="mt-5 w-full py-2.5 bg-slate-50 hover:bg-primary-50 text-slate-600 hover:text-primary-600 border border-slate-200 hover:border-primary-200 rounded-xl font-bold flex text-sm items-center justify-center gap-2 transition-all shadow-sm"
+            >
+                <Play size={16} /> Open Board
+            </button>
+        </div>
+    );
 
     return (
-        <div className="min-h-screen flex flex-col relative overflow-hidden font-sans text-slate-900 bg-slate-50">
-            {/* --- Background Elements (-z-10) --- */}
-            <div
-                className="absolute inset-0 -z-10 opacity-40 pointer-events-none"
-                style={{
-                    backgroundImage: 'radial-gradient(#cbd5e1 1.5px, transparent 0)',
-                    backgroundSize: '32px 32px'
-                }}
-            />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl h-96 bg-gradient-to-tr from-primary-400/30 via-purple-500/30 to-blue-500/30 rounded-full blur-[100px] -z-10 pointer-events-none"></div>
+        <div className="min-h-screen flex flex-col relative font-sans text-slate-900 bg-slate-50 pb-20 overflow-x-hidden">
+            {/* Background elements */}
+            <div className="fixed inset-0 z-0 opacity-40 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#cbd5e1 1.5px, transparent 0)', backgroundSize: '32px 32px' }} />
+            <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-80 bg-gradient-to-tr from-primary-400/20 via-purple-500/20 to-blue-500/20 rounded-full blur-[100px] z-0 pointer-events-none"></div>
 
-            {/* --- Navbar Section --- */}
-            <div className="w-full max-w-5xl mx-auto mt-6 px-4 z-10 flex-shrink-0">
-                <motion.nav
-                    initial={{ y: -20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ duration: 0.6, ease: "easeOut" }}
-                    className="px-6 py-3 bg-white/70 backdrop-blur-xl border border-white/50 shadow-sm rounded-full flex items-center justify-between"
-                >
+            {/* Navbar */}
+            <div className="w-full max-w-6xl mx-auto mt-6 px-4 z-10 flex-shrink-0">
+                <nav className="px-6 py-3 bg-white/70 backdrop-blur-xl border border-white/50 shadow-sm rounded-full flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold shadow-md shadow-primary-500/30">
-                            <Sparkles className="w-5 h-5" />
+                            <Sparkles size={20} />
                         </div>
                         <span className="font-bold text-xl tracking-tight text-slate-800">Sangam</span>
                     </div>
@@ -73,110 +139,169 @@ const Dashboard: React.FC = () => {
                         <span className="text-sm font-medium text-slate-500 hidden sm:inline-block bg-slate-100 px-3 py-1.5 rounded-full">
                             Welcome, <span className="text-slate-800 font-semibold">{userName}</span>
                         </span>
-                        <button
-                            onClick={() => navigate('/friends')}
-                            className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors mr-2"
-                        >
-                            <Users size={16} /> Friends
-                        </button>
                         <div className="w-10 h-10 rounded-full bg-slate-100 p-0.5 border border-slate-200">
-                            <UserButton
-                                afterSignOutUrl="/"
-                                appearance={{ elements: { avatarBox: "w-full h-full" } }}
-                            />
+                            <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: "w-full h-full" } }} />
                         </div>
                     </div>
-                </motion.nav>
+                </nav>
             </div>
 
-            {/* --- Main Content Area --- */}
-            <motion.div
-                variants={containerVariants}
-                initial="hidden"
-                animate="visible"
-                className="flex-1 flex flex-col items-center justify-center w-full max-w-4xl mx-auto z-10 px-6"
-            >
-                {/* Hero Text */}
-                <div className="flex flex-col items-center text-center mb-12 mt-auto pt-20">
-                    <motion.h1 variants={itemVariants} className="text-5xl sm:text-6xl font-extrabold tracking-tight mb-4 text-slate-900">
-                        Where teams <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-600 to-purple-600">create together.</span>
-                    </motion.h1>
-                    <motion.p variants={itemVariants} className="text-xl sm:text-2xl text-slate-500 max-w-2xl font-medium">
-                        Launch a new infinite canvas or jump back into a recent project.
-                    </motion.p>
-                </div>
+            {/* Main Content Area */}
+            <div className="w-full max-w-6xl mx-auto z-10 px-4 mt-8">
 
-                {/* Action Buttons */}
-                <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-8 w-full justify-center items-center">
+                {/* Hero / Quick Actions */}
+                <div className="bg-white/60 backdrop-blur-xl border border-slate-200 p-6 md:p-8 rounded-3xl shadow-sm mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div>
+                        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 mb-2">Welcome to your workspace</h1>
+                        <p className="text-slate-500 font-medium">Create a new canvas or join an existing session instantly.</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                        <button
+                            onClick={createSession}
+                            className="w-full md:w-auto px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl shadow-md shadow-primary-500/25 flex items-center justify-center gap-2 transition-all hover:scale-105"
+                        >
+                            <Plus size={20} /> New Whiteboard
+                        </button>
 
-                    {/* Glow Gradient Create Button */}
-                    <motion.button
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.97 }}
-                        onClick={createSession}
-                        className="group relative w-full md:w-auto p-[2px] rounded-2xl bg-gradient-to-r from-primary-400 via-purple-500 to-pink-500 shadow-2xl shadow-primary-500/25"
-                    >
-                        <div className="absolute inset-0 bg-gradient-to-r from-primary-400 via-purple-500 to-pink-500 rounded-2xl blur-lg opacity-80 group-hover:opacity-100 transition-opacity duration-300"></div>
-                        <div className="relative flex items-center gap-4 bg-white/95 backdrop-blur-xl px-8 py-5 rounded-[14px] h-full w-full border border-white/50">
-                            <div className="w-12 h-12 flex-shrink-0 rounded-full bg-primary-50 flex items-center justify-center">
-                                <Plus className="text-primary-600 w-6 h-6 group-hover:scale-125 transition-transform duration-300" />
-                            </div>
-                            <div className="text-left pr-4">
-                                <h3 className="text-xl font-bold text-slate-800 tracking-tight group-hover:text-primary-600 transition-colors">Start Whiteboard</h3>
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-0.5">New Session</p>
-                            </div>
-                        </div>
-                    </motion.button>
+                        <div className="hidden sm:block w-px h-10 bg-slate-200"></div>
 
-                    {/* Separators */}
-                    <div className="hidden md:block w-px h-16 bg-slate-200/60 font-bold backdrop-blur"></div>
-                    <div className="md:hidden w-16 h-px bg-slate-200/60 font-bold backdrop-blur"></div>
-
-                    {/* Join Session Command Bar */}
-                    <form onSubmit={joinSession} className="w-full md:w-auto relative group">
-                        <div className="relative flex items-center bg-white/70 backdrop-blur-2xl rounded-2xl shadow-xl shadow-slate-200/40 border-2 border-slate-200/60 p-2 focus-within:ring-4 focus-within:ring-primary-500/20 focus-within:border-primary-500 focus-within:bg-white transition-all overflow-hidden">
-                            {/* Inner Shadow simulate inset */}
-                            <div className="absolute inset-0 rounded-2xl shadow-[inset_0_2px_10px_rgba(0,0,0,0.03)] pointer-events-none"></div>
-                            <div className="pl-5 pr-3 text-slate-400 z-10">
-                                <Users className="w-6 h-6 group-focus-within:text-primary-500 transition-colors" />
-                            </div>
+                        <form onSubmit={joinSession} className="flex relative w-full sm:w-auto">
                             <input
                                 type="text"
-                                placeholder="Enter Session ID..."
+                                placeholder="Paste Session ID..."
                                 value={joinSessionId}
-                                onChange={(e) => setJoinSessionId(e.target.value)}
-                                className="flex-1 w-full md:w-64 bg-transparent border-none outline-none text-slate-700 placeholder:text-slate-400 text-lg font-medium px-2 py-4 z-10"
+                                onChange={e => setJoinSessionId(e.target.value)}
+                                className="w-full sm:w-64 pl-4 pr-12 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 shadow-sm transition-all"
                             />
-                            <motion.button
+                            <button
                                 type="submit"
                                 disabled={!joinSessionId.trim()}
-                                whileHover={joinSessionId.trim() ? { scale: 1.05 } : {}}
-                                whileTap={joinSessionId.trim() ? { scale: 0.95 } : {}}
-                                className={`ml-2 px-6 py-4 rounded-xl font-bold flex items-center gap-2 shadow-sm transition-all z-10 ${joinSessionId.trim()
-                                    ? 'bg-slate-900 text-white hover:bg-slate-800 hover:shadow-md cursor-pointer'
-                                    : 'bg-slate-100/50 text-slate-400 cursor-not-allowed'
-                                    }`}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:hover:bg-slate-900 transition-colors"
                             >
-                                Join <ArrowRight className="w-5 h-5 -mr-1" />
-                            </motion.button>
+                                <ArrowRight size={16} />
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex items-center gap-2 border-b border-slate-200 mb-8">
+                    <button
+                        onClick={() => setActiveTab('boards')}
+                        className={`px-5 py-3 font-bold text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'boards' ? 'border-primary-500 text-primary-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                    >
+                        <LayoutGrid size={18} /> My Boards
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('network')}
+                        className={`px-5 py-3 font-bold text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'network' ? 'border-primary-500 text-primary-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                    >
+                        <Users size={18} /> My Network
+                    </button>
+                </div>
+
+                {/* Content Area */}
+                <div className="min-h-[400px]">
+
+                    {/* MY BOARDS TAB */}
+                    {activeTab === 'boards' && (
+                        <div>
+                            {loadingBoards ? (
+                                <div className="flex justify-center items-center h-40"><Loader2 className="animate-spin text-primary-500" size={32} /></div>
+                            ) : myBoards.length === 0 ? (
+                                <div className="text-center py-20 bg-white/50 border border-slate-200 border-dashed rounded-3xl">
+                                    <FolderClosed size={48} className="mx-auto text-slate-300 mb-4" />
+                                    <h3 className="text-lg font-bold text-slate-700">No boards yet</h3>
+                                    <p className="text-slate-500 mt-1">Create a new whiteboard to get started.</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                    {myBoards.map(b => <BoardCard key={b.id} board={b} />)}
+                                </div>
+                            )}
                         </div>
-                    </form>
+                    )}
 
-                </motion.div>
+                    {/* MY NETWORK TAB */}
+                    {activeTab === 'network' && (
+                        <div className="flex flex-col lg:flex-row gap-8">
 
-                {/* Footer Note */}
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.8, duration: 0.8 }}
-                    className="mt-auto pb-8 text-sm text-gray-400 text-center"
-                >
-                    <p className="font-medium">
-                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400 mr-1 opacity-80">✨</span>
-                        Pro tip: Share your Session ID instantly with your team.
-                    </p>
-                </motion.div>
-            </motion.div>
+                            {/* Friends Sidebar */}
+                            <div className="w-full lg:w-80 flex-shrink-0">
+                                <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-3xl p-5 shadow-sm">
+                                    <div className="flex justify-between items-center mb-5">
+                                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                            <Users size={18} className="text-primary-500" /> Friends List
+                                        </h3>
+                                        <button onClick={() => navigate('/friends')} className="text-xs font-bold text-primary-600 bg-primary-50 px-3 py-1.5 rounded-lg hover:bg-primary-100 transition-colors">Manage</button>
+                                    </div>
+
+                                    {loadingFriends ? (
+                                        <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-400" size={24} /></div>
+                                    ) : friends.length === 0 ? (
+                                        <p className="text-sm text-slate-500 text-center py-5 italic">No friends found.</p>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {friends.map(f => {
+                                                const friendId = f.id;
+                                                const isSelected = selectedFriend?.friendId === friendId;
+
+                                                return (
+                                                    <button
+                                                        key={f.friendshipId}
+                                                        onClick={() => {
+                                                            setSelectedFriend({ friendId, name: f.name || f.email });
+                                                            fetchFriendBoards(friendId);
+                                                        }}
+                                                        className={`w-full text-left px-4 py-3 rounded-2xl flex items-center gap-3 transition-colors ${isSelected ? 'bg-indigo-50 border border-indigo-100' : 'bg-slate-50 hover:bg-slate-100 border border-transparent'}`}
+                                                    >
+                                                        <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-400 to-primary-400 text-white flex items-center justify-center font-bold shadow-sm">
+                                                            {(f.name || f.email)?.[0]?.toUpperCase() || 'U'}
+                                                        </div>
+                                                        <div className="flex-1 overflow-hidden">
+                                                            <p className={`font-semibold text-sm truncate ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>{f.name || f.email}</p>
+                                                        </div>
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Friend's Boards */}
+                            <div className="flex-1 min-w-0">
+                                {!selectedFriend ? (
+                                    <div className="h-full min-h-[300px] flex flex-col items-center justify-center bg-white/40 border border-slate-200 border-dashed rounded-3xl p-10 text-center">
+                                        <Globe size={48} className="text-slate-300 mb-4" />
+                                        <h3 className="text-lg font-bold text-slate-600">Select a friend</h3>
+                                        <p className="text-slate-500 max-w-sm mt-2">Click on a friend from your list to view the boards they have made public.</p>
+                                    </div>
+                                ) : (
+                                    <div className="animate-in fade-in duration-300">
+                                        <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                            {selectedFriend.name}'s Public Boards
+                                        </h2>
+
+                                        {loadingFriendBoards ? (
+                                            <div className="flex justify-center items-center h-40"><Loader2 className="animate-spin text-primary-500" size={32} /></div>
+                                        ) : friendBoards.length === 0 ? (
+                                            <div className="text-center py-16 bg-white/50 border border-slate-200 rounded-3xl">
+                                                <Lock size={40} className="mx-auto text-slate-300 mb-4" />
+                                                <p className="text-slate-500 font-medium">This user hasn't made any boards public.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                                                {friendBoards.map(b => <BoardCard key={b.id} board={b} />)}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };

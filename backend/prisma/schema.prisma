@@ -42,10 +42,12 @@ model Friendship {
 }
 
 model Board {
-  id        String   @id @default(uuid())
-  ownerId   String
-  title     String
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  ownerId     String
+  title       String   @default("Untitled Board")
+  canvasState String?  @db.Text
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   owner         User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
